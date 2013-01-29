@@ -1,0 +1,202 @@
+/* 
+ * Copyright (c) 2011, Jan Clement
+ * licenced under the GPL
+ *
+ * Author: Jan Clement <jan.clement@audiokits.de>
+ *
+ * This file is part of the arduiNode library
+ * http://code.google.com/p/arduinode/
+ */
+
+#include "mac.h"
+
+
+static struct pt pt_relPktSend;
+
+void init_pt_snd() {
+   PT_INIT(&pt_relPktSend); 	// init proto snd var...
+}
+
+void closeConnection() {
+	enable_rx();		// enable rx, rf12 or ir
+	PORTB &= 0;			// led off
+}
+
+
+void sendHeader(uchar length, uchar toAddr, uchar type) {
+	if(!CSMA_channel_free()) return;
+	enableIROut(38);
+	PORTB |= 1;			// led on
+	sendByte(STARTSYMBOL);
+	sendByte(length);		// pkt length info add +4 bytes for the header overhead!
+	sendByte(toAddr);
+	sendByte(myself.id);
+	sendByte(type);
+}
+
+// void sendRtsCtsAck(uchar type, uchar toAddr) {
+	// if(!CSMA_channel_free()) return;
+	// enableIROut(38);
+	// PORTB |= 1;			// led on
+	// sendByte(STARTSYMBOL);
+	// sendByte(4);		// pkt length info
+	// sendByte(toAddr);
+	// sendByte(myself.id);
+	// sendByte(type);
+	// enable_rcv();		// enable ir rcv
+	// PORTB &= 0;			// led off
+// }
+
+// void sendBeacon() {
+	// if(!CSMA_channel_free()) return;
+	// enableIROut(38);
+	// PORTB |= 1;			// led on
+	// sendByte(STARTSYMBOL);
+	// sendByte(5);		// pkt length info
+	// sendByte(255);	// broadcast adress
+	// sendByte(myself.id);
+	// sendByte(BEACON);
+	// sendByte(myself.htm);
+	// enable_rcv();		// enable ir rcv
+	// PORTB &= 0;			// led off
+// }
+
+node myself;
+uchar timestamp;
+// void sendINID() {
+	// if(!CSMA_channel_free()) return;
+	// enableIROut(38);
+	// PORTB |= 1;			// led on
+	// sendByte(STARTSYMBOL);
+	// sendByte(5);		// pkt length info
+	// sendByte(nextNodes[nextNodeIndex()].id);
+	// sendByte(myself.id);
+	// sendByte(INID);
+	// sendByte(timestamp);
+	// enable_rcv();		// enable ir rcv
+	// PORTB &= 0;			// led off
+// }
+
+// void sendANID() {
+	// if(!CSMA_channel_free()) return;
+	// enableIROut(38);
+	// PORTB |= 1;			// led on
+	// sendByte(STARTSYMBOL);
+	// sendByte(6);		// pkt length info
+	// sendByte(0);
+	// sendByte(myself.id);
+	// sendByte(ANID);
+	// sendByte(rxbuff[4]);	// the temporary key is sent back
+	// sendByte(allocateID());	// a freshly generated ID is also sent back
+	// enable_rcv();		// enable ir rcv
+	// PORTB &= 0;			// led off
+// }
+
+unsigned char CSMA_channel_free() {
+	uchar rtr = 0; // retries
+	while(rtr <= 10 && !PHY_CHANNEL_FREE) {
+		delay(CSMA_TIME);
+		rtr++;
+		#if DEBUGMODUS
+		Serial.print(" CHN BSY");
+		#endif
+	}
+	if(!PHY_CHANNEL_FREE){
+		#if DEBUGMODUS
+		Serial.println(" ");
+		Serial.println(" CHN BLCK");
+		#endif
+		return 0;	
+	}
+	return 1; // true = channel is free
+}
+
+static uchar pktRetry;
+unsigned int errorCnt, pktCnt;	// FIXME count and calc packet statistics
+
+// wrapper for macProtoSendReliablePacket()
+void sendData(uchar *dat, uchar length) {
+	if(myself.id && myself.htm != 255) {	// i have an id and neigbhour nodes
+		pktRetry = 0;
+		pktCnt++;
+		while(rcvPktType != PKTACKED && pktRetry < PKTRETRY) {
+		macProtoSendReliablePacket(&pt_relPktSend, dat, length);
+		}
+		if(pktRetry >= PKTRETRY) { // max retries exceeded
+			nextNodes[0].id = 0;	// delete this id
+			mangageNextNodes(0, 255);	// update node table after deleting id 0
+			errorCnt++;	// update the error count for the pkt stats
+			#if DEBUGMODUS
+			Serial.print(" delID");
+			Serial.println(nextNodes[0].id, DEC);
+			#endif
+		}
+	}
+}
+
+
+static int macProtoSendReliablePacket(struct pt *pt, uchar *dat, uchar length) {
+	static unsigned long tstamp;
+
+	PT_BEGIN(pt);
+	rcvPktType = -1;	// reset received packet type
+	tstamp = millis();
+	PT_WAIT_UNTIL(pt, PHY_CHANNEL_FREE || (millis() - tstamp > PKTTIMEOUT) );
+	if(millis() - tstamp > PKTTIMEOUT){
+		#if DEBUGMODUS
+		Serial.println(" CHN BLK");
+		#endif
+		PT_EXIT(pt);
+	}
+	#if DEBUGMODUS
+	if(pktRetry == 0) {	// only print once
+		Serial.print(" ->SND via ID:");
+		Serial.print(nextNodes[0].id, DEC);
+	}
+	#endif
+	
+	sendHeader(4, nextNodes[0].id, RTS);			// send a RTS
+	closeConnection();
+	
+	#if DEBUGMODUS
+	Serial.print(" ->rts");
+	#endif
+	
+	//tstamp = millis();
+	PT_WAIT_UNTIL(pt, rcvPktType == CTS || (millis() - tstamp > PKTTIMEOUT) );
+	if(rcvPktType != CTS) {		// timeout detected
+		pktRetry++;
+		#if DEBUGMODUS
+		Serial.print(" TO!rtry:");
+		Serial.print(pktRetry, DEC);
+		#endif
+		PT_EXIT(pt);			// restart transmission
+	}
+	
+	// send the actual data
+	phySendPacket(nextNodes[0].id, myself.id, DATA, dat, length);
+	
+	#if DEBUGMODUS
+	Serial.print(" ->Data");
+	#endif
+	
+	//tstamp = millis();
+	PT_WAIT_UNTIL(pt, rcvPktType == ACK || (millis() - tstamp > PKTTIMEOUT) );	
+	if(rcvPktType != ACK) {		// transmitted packet was not acked
+		pktRetry++;
+		#if DEBUGMODUS
+		Serial.print(" ACK ERR:");
+		Serial.print(pktRetry, DEC);
+		#endif
+		PT_EXIT(pt);			// restart transmission
+	}
+	#if DEBUGMODUS
+	Serial.println(" TRNSF OK");
+	#endif
+	rcvPktType = PKTACKED;	
+	PT_END(pt);
+}
+
+
+
+

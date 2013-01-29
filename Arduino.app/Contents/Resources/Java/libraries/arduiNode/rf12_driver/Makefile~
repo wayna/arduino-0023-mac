@@ -1,0 +1,10 @@
+ARDUINO_DIR = /home/loco/arduino/arduino-0022
+
+TARGET      	= RFM12_TEST
+BOARD_TAG    	= uno
+ARDUINO_PORT 	= /dev/cu.usb*
+MCU		= atmega168
+F_CPU 		= 16000000L
+ARDUINO_LIBS 	= rfm12_driver
+
+include /home/loco/arduino/buildstuff/Arduino.mk 

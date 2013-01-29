@@ -1,0 +1,38 @@
+/* 
+ * Copyright (c) 2011, Jan Clement
+ * licenced under the GPL
+ *
+ * Author: Jan Clement <jan.clement@audiokits.de>
+ *
+ * This file is part of the arduiNode library
+ * http://code.google.com/p/arduinode/
+ */
+
+#ifndef phy.h
+#define phy.h
+
+
+#include "main.h"
+
+/**   IR driver    **/
+#include "ir_ctrl.h"
+
+/**   rf12 driver  **/
+// #include "rf12_driver/rf12_wrap.h"	// FIXME
+
+
+// #define enable_rx() 
+
+
+/************************************************************************
+ * sends raw bytes of data,                                             *
+ ************************************************************************/
+void phySendPacket(uchar to, uchar from, uchar type, uchar *data, uchar length);
+
+/************************************************************************
+ * prints the actual content of RX_BUFFER                               *
+ ************************************************************************/
+void printPkt();
+
+
+#endif

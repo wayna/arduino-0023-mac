@@ -1,0 +1,1 @@
+avrdude -p m168 -b 115200 -c stk500v1 -P /dev/ttyUSB0 -F -C ~/arduino/arduino-0022/hardware/tools/avrdude.conf -U flash:w:/home/loco/arduino/RFM12_TEST/build-cli/RFM12_TEST.hex

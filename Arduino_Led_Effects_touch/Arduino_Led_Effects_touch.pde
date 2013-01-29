@@ -1,5 +1,7 @@
 #include <FastSPI_LED.h>
 #include <SerialCommand.h>
+#include "mpr121.h" // include the atmel I2C libs
+#include "i2c.h"
 
 #define NUM_LEDS 76
 //#define NUM_LEDS 23
@@ -7,6 +9,23 @@ int BOTTOM_INDEX = 0;
 int TOP_INDEX = int(NUM_LEDS/2);
 int EVENODD = NUM_LEDS%2;
 
+// Match key inputs with electrode numbers
+#define ONE 8
+#define TWO 5
+#define THREE 2
+#define FOUR 7
+#define FIVE 4
+#define SIX 1
+#define SEVEN 6
+#define EIGHT 3
+#define NINE 0
+#define ELE9 9
+#define ELE10 10
+#define ELE11 11
+//interupt pin
+int irqPin = 2;  // D2
+
+//define TM 1809 SPI output
 #define PIN 11
 
 struct CRGB { unsigned char r; unsigned char g; unsigned char b; };
@@ -733,7 +752,22 @@ void pacman(int idelay) { //-MARCH STRIP C-W
 void setup()  
 {
 
-
+ //-------------------------For touchshield---------------------------
+  //make sure the interrupt pin is an input and pulled high
+  pinMode(irqPin, INPUT);
+  digitalWrite(irqPin, HIGH);
+  
+   // initalize I2C bus. Wiring lib not used. 
+  i2cInit();
+  
+  // initialize mpr121
+  mpr121QuickConfig();
+  
+  // Create and interrupt to trigger when a button
+  // is hit, the IRQ pin goes low, and the function getNumber is run. 
+  attachInterrupt(0,getNumber,LOW);
+ //--------------------------------------------------------------------
+  
   Serial.begin(9600);      // SETUP HARDWARE SERIAL (USB)
   //Serial.begin(115200);      // SETUP HARDWARE SERIAL (USB)
   
@@ -776,36 +810,37 @@ void set_mode_strip() {    //-SETS THE MODE (SOME MODES REQUIRE RANDOM STARTS TO
 }
 
 void demo_mode(){
-  int r = 100;
-  for(int i=0; i<r*25; i++) {rainbow_fade(20);}
-  for(int i=0; i<r*20; i++) {rainbow_loop(10, 20);}
-  for(int i=0; i<r*20; i++) {random_burst(20);}
-  for(int i=0; i<r*12; i++) {color_bounce(20);}
-  for(int i=0; i<r*12; i++) {color_bounceFADE(40);}
-  for(int i=0; i<r*5; i++) {police_lightsONE(40);}
-  for(int i=0; i<r*5; i++) {police_lightsALL(40);}
-  for(int i=0; i<r*50; i++) {pulse_one_color_all(0, 10);}
-  for(int i=0; i<r*5; i++) {fade_vertical(240, 60);}
-  random_red();
-  for(int i=0; i<r*8; i++) {random_march(30);}
-  one_color_all(0,0,0);
-  for(int i=0; i<r*5; i++) {pop_horizontal(300, 100);}
-  for(int i=0; i<r*3; i++) {flame();}
-  for(int i=0; i<r*15; i++) {rainbow_vertical(15, 50);}
+  int r = 10;
+  for(int i=0; i<r*25; i++) {rainbow_fade(20);Serial.println("rainbow fade");}
+  for(int i=0; i<r*20; i++) {rainbow_loop(10, 20);Serial.println("rainbow loop");}
+  for(int i=0; i<r*20; i++) {random_burst(20);Serial.println("random burst");}
+  for(int i=0; i<r*12; i++) {color_bounce(20);Serial.println("color bounce");}
+  for(int i=0; i<r*12; i++) {color_bounceFADE(40);Serial.println("color bounce fade");}
+  for(int i=0; i<r*5; i++) {police_lightsONE(40);Serial.println("police lights one");}
+  for(int i=0; i<r*5; i++) {police_lightsALL(40);Serial.println("police lights all");}
+  for(int i=0; i<r*50; i++) {pulse_one_color_all(0, 10);Serial.println("pulse one color all");}
+  for(int i=0; i<r*5; i++) {fade_vertical(240, 60);Serial.println("fade vertical");}
+  for(int i=0; i<r*8; i++) {random_march(30);Serial.println("random march");}
+  for(int i=0; i<r*5; i++) {pop_horizontal(300, 100);Serial.println("pop horizontal");}
+  for(int i=0; i<r*3; i++) {flame();Serial.println("flame");}
+  for(int i=0; i<r*15; i++) {rainbow_vertical(15, 50);Serial.println("rainbow vertical");}
 
  
-  for(int i=0; i<r*2; i++) {one_color_all(255,0,0);}
-  for(int i=0; i<r*2; i++) {one_color_all(0,0,255);}
-  for(int i=0; i<r*2; i++) {one_color_all(255,0,100);}
-  for(int i=0; i<r*2; i++) {one_color_all(255,0,255);}
+  for(int i=0; i<r*2; i++) {one_color_all(255,0,0);Serial.println("red");}
+  for(int i=0; i<r*2; i++) {one_color_all(0,0,255);Serial.println("blue");}
+  for(int i=0; i<r*2; i++) {one_color_all(255,0,100);Serial.println("pink");}
+  for(int i=0; i<r*2; i++) {one_color_all(255,0,255);Serial.println("purple");}
 }
 
 
 
 
 //------------------MAIN LOOP------------------
-void loop() {
-  
+void loop() 
+
+
+
+{
   sCmd.readSerial();     //-PROCESS SERIAL COMMANDS
   
   if (ledMode == 0) {one_color_all(0,0,0);}            //---STRIP OFF - "0"
@@ -851,7 +886,90 @@ void loop() {
 
 // GETS CALLED BY SERIALCOMMAND WHEN NO MATCHING COMMAND
 void unrecognized(const char *command) {
-  Serial.println("nothin fo ya...");
+
 }
 
+void getNumber()
+{
+  int touchNumber = 0;
+  uint16_t touchstatus;
+  char digits;
+  
+  touchstatus = getTouchStatus();
+  
+  for (int j=0; j<12; j++)  // Check how many electrodes were pressed
+  {
+    if ((touchstatus & (1<<j)))
+      touchNumber++;
+  }
+  
+  if (touchNumber == 1)
+  {
+    if (touchstatus & (1<<SEVEN))
+    {
+      digits = '7';
+      (ledMode == 0);
+      Serial.println ("OFF");
+    }
+    else if (touchstatus & (1<<FOUR))
+    {
+      digits = '4';
+      (ledMode == 888);
+      Serial.println ("Mode boucle");
+    }
+    else if (touchstatus & (1<<ONE))
+    {
+      digits = '1';
+    }
+    else if (touchstatus & (1<<EIGHT))
+    {
+      digits = '8';
+    }
+    else if (touchstatus & (1<<FIVE))
+    {
+      digits = '5';
+    }
+    else if (touchstatus & (1<<TWO))
+    {
+      digits = '2';
+    }
+    else if (touchstatus & (1<<NINE))
+    {
+      digits = '9';
+    }
+    else if (touchstatus & (1<<SIX))
+    {
+      digits = '6';
+    }
+    else if (touchstatus & (1<<THREE))
+    {
+      digits = '3';
+    }
+    else if (touchstatus & (1<<ELE9))
+    {
+      digits = '0';
+    }
+    if (digits == '0') {one_color_all(0,0,0); Serial.println ("OFF");}
+    if (digits == '1') {demo_mode(); Serial.println ("DEMO");}
+  }
+  //do nothing if more than one button is pressed, or if all are released
+  else if (touchNumber == 0)
+    ;
+  else
+    ;
+}
+
+/* getTouchStatus() will return a 16-bit value that relates the
+current touched status of each button. The LSB represents electrodes
+0-7 (bit 0 = electrode 0), and the lowest 4 bits of the MSB
+represent electrods 8-11. A 1 means a button is being touched.*/
+int getTouchStatus()
+{
+  int touch;
+  
+  touch = mpr121Read(0x01) << 8;
+  touch |= mpr121Read(0x00);
+  
+  return touch;
+}
 
